@@ -5,7 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Mic, MicOff, Volume2, Home, RefreshCw } from "lucide-react";
 import { useToast } from "../hooks/use-toast";
-import { mockMathData } from "../utils/mockData";
+import axios from "axios";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 const MathModule = () => {
   const navigate = useNavigate();
@@ -16,8 +19,14 @@ const MathModule = () => {
   const [currentProblem, setCurrentProblem] = useState(null);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
+  const [sessionId, setSessionId] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Generate session ID
+    const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setSessionId(newSessionId);
+
     // Initialize speech APIs
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -32,18 +41,42 @@ const MathModule = () => {
       setSpeechSynthesis(window.speechSynthesis);
     }
 
-    // Generate first problem
+    // Load initial data
+    loadProgress(newSessionId);
     generateProblem();
   }, []);
 
-  const generateProblem = () => {
-    const problems = mockMathData.problems;
-    const randomProblem = problems[Math.floor(Math.random() * problems.length)];
-    setCurrentProblem(randomProblem);
-    
-    setTimeout(() => {
-      speak(`Here's a math problem: ${randomProblem.question}`);
-    }, 500);
+  const loadProgress = async (sessionId) => {
+    try {
+      const response = await axios.get(`${API}/progress/${sessionId}`);
+      setScore(response.data.math_score || 0);
+      setStreak(response.data.math_streak || 0);
+    } catch (error) {
+      console.warn("Could not load progress, starting fresh:", error);
+    }
+  };
+
+  const generateProblem = async (type = null) => {
+    setLoading(true);
+    try {
+      const params = type ? `?type=${type}` : '';
+      const response = await axios.get(`${API}/math/problems${params}`);
+      const problem = response.data;
+      setCurrentProblem(problem);
+      
+      setTimeout(() => {
+        speak(`Here's a math problem: ${problem.question}`);
+      }, 500);
+    } catch (error) {
+      console.error("Error generating problem:", error);
+      toast({
+        title: "Error",
+        description: "Could not load a new problem. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const speak = (text) => {
@@ -82,15 +115,17 @@ const MathModule = () => {
     }
   };
 
-  const handleAnswer = (transcript) => {
-    if (!currentProblem) return;
+  const handleAnswer = async (transcript) => {
+    if (!currentProblem || !sessionId) return;
 
     // Extract number from transcript
     const numberWords = {
       'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
       'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
       'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
-      'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20
+      'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20,
+      'thirty': 30, 'forty': 40, 'fifty': 50, 'sixty': 60, 'seventy': 70,
+      'eighty': 80, 'ninety': 90, 'hundred': 100
     };
 
     let answer = null;
@@ -114,25 +149,52 @@ const MathModule = () => {
       return;
     }
 
-    // Check if answer is correct
-    if (answer === currentProblem.answer) {
-      setScore(score + 1);
-      setStreak(streak + 1);
-      speak(`Excellent! ${answer} is correct! Let's try another one.`);
-      toast({
-        title: "Correct! 🎉",
-        description: `Great job! The answer is ${answer}`,
+    try {
+      // Submit answer to backend
+      const response = await axios.post(`${API}/math/answer`, {
+        problem_id: currentProblem.id,
+        user_answer: answer,
+        session_id: sessionId
       });
-      setTimeout(generateProblem, 2000);
-    } else {
-      setStreak(0);
-      speak(`Not quite right. The correct answer is ${currentProblem.answer}. Let's try another problem.`);
+
+      const { correct, feedback, next_problem } = response.data;
+
+      if (correct) {
+        setScore(score + 1);
+        setStreak(streak + 1);
+        toast({
+          title: "Correct! 🎉",
+          description: `Great job! The answer is ${answer}`,
+        });
+      } else {
+        setStreak(0);
+        toast({
+          title: "Try Again! 📚",
+          description: `The correct answer was ${currentProblem.answer}`,
+          variant: "destructive",
+        });
+      }
+
+      speak(feedback);
+
+      // Set next problem
+      if (next_problem) {
+        setTimeout(() => {
+          setCurrentProblem(next_problem);
+        }, 2000);
+      } else {
+        setTimeout(() => {
+          generateProblem();
+        }, 2000);
+      }
+
+    } catch (error) {
+      console.error("Error submitting answer:", error);
       toast({
-        title: "Try Again! 📚",
-        description: `The correct answer was ${currentProblem.answer}`,
+        title: "Error",
+        description: "Could not submit answer. Please try again.",
         variant: "destructive",
       });
-      setTimeout(generateProblem, 3000);
     }
   };
 
@@ -141,6 +203,17 @@ const MathModule = () => {
       speak(currentProblem.question);
     }
   };
+
+  if (loading && !currentProblem) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="text-lg text-gray-600">Loading your math adventure...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-4 space-y-6">
@@ -207,7 +280,7 @@ const MathModule = () => {
         <CardContent className="flex justify-center">
           <Button
             onClick={startListening}
-            disabled={isListening}
+            disabled={isListening || loading}
             className={`w-20 h-20 rounded-full text-white transition-all ${
               isListening 
                 ? 'bg-red-500 hover:bg-red-600 animate-pulse' 
@@ -222,13 +295,42 @@ const MathModule = () => {
       {/* Controls */}
       <Card className="bg-gray-50 border-2 border-gray-200">
         <CardContent className="pt-6">
-          <div className="flex justify-center">
+          <div className="flex justify-center gap-4 flex-wrap">
             <Button 
-              onClick={generateProblem}
+              onClick={() => generateProblem()}
+              disabled={loading}
               className="bg-green-500 hover:bg-green-600 text-white flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />
               New Problem
+            </Button>
+            <Button 
+              onClick={() => generateProblem('addition')}
+              disabled={loading}
+              variant="outline"
+            >
+              + Addition
+            </Button>
+            <Button 
+              onClick={() => generateProblem('subtraction')}
+              disabled={loading}
+              variant="outline"
+            >
+              - Subtraction
+            </Button>
+            <Button 
+              onClick={() => generateProblem('multiplication')}
+              disabled={loading}
+              variant="outline"
+            >
+              × Multiplication
+            </Button>
+            <Button 
+              onClick={() => generateProblem('division')}
+              disabled={loading}
+              variant="outline"
+            >
+              ÷ Division
             </Button>
           </div>
         </CardContent>
@@ -244,6 +346,7 @@ const MathModule = () => {
             <p>• Listen carefully to the math problem</p>
             <p>• You can say numbers as words (like "five") or digits</p>
             <p>• Click "Repeat Question" if you need to hear it again</p>
+            <p>• Choose specific problem types using the buttons above</p>
             <p>• Build your streak by getting answers right in a row!</p>
           </div>
         </CardContent>

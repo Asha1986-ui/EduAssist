@@ -5,7 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Mic, MicOff, Volume2, Home, RefreshCw, BookOpen } from "lucide-react";
 import { useToast } from "../hooks/use-toast";
-import { mockEnglishData } from "../utils/mockData";
+import axios from "axios";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 const EnglishModule = () => {
   const navigate = useNavigate();
@@ -14,11 +17,17 @@ const EnglishModule = () => {
   const [recognition, setRecognition] = useState(null);
   const [speechSynthesis, setSpeechSynthesis] = useState(null);
   const [currentExercise, setCurrentExercise] = useState(null);
-  const [exerciseType, setExerciseType] = useState('spelling'); // spelling, vocabulary, grammar
+  const [exerciseType, setExerciseType] = useState('spelling');
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
+  const [sessionId, setSessionId] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Generate session ID
+    const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setSessionId(newSessionId);
+
     // Initialize speech APIs
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -33,18 +42,45 @@ const EnglishModule = () => {
       setSpeechSynthesis(window.speechSynthesis);
     }
 
-    // Generate first exercise
+    // Load initial data
+    loadProgress(newSessionId);
+  }, []);
+
+  useEffect(() => {
+    // Generate exercise when type changes
     generateExercise();
   }, [exerciseType]);
 
-  const generateExercise = () => {
-    const exercises = mockEnglishData[exerciseType];
-    const randomExercise = exercises[Math.floor(Math.random() * exercises.length)];
-    setCurrentExercise(randomExercise);
-    
-    setTimeout(() => {
-      speak(randomExercise.question);
-    }, 500);
+  const loadProgress = async (sessionId) => {
+    try {
+      const response = await axios.get(`${API}/progress/${sessionId}`);
+      setScore(response.data.english_score || 0);
+      setStreak(response.data.english_streak || 0);
+    } catch (error) {
+      console.warn("Could not load progress, starting fresh:", error);
+    }
+  };
+
+  const generateExercise = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API}/english/exercises?type=${exerciseType}`);
+      const exercise = response.data;
+      setCurrentExercise(exercise);
+      
+      setTimeout(() => {
+        speak(exercise.question);
+      }, 500);
+    } catch (error) {
+      console.error("Error generating exercise:", error);
+      toast({
+        title: "Error",
+        description: "Could not load a new exercise. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const speak = (text) => {
@@ -83,31 +119,55 @@ const EnglishModule = () => {
     }
   };
 
-  const handleAnswer = (transcript) => {
-    if (!currentExercise) return;
+  const handleAnswer = async (transcript) => {
+    if (!currentExercise || !sessionId) return;
 
-    const isCorrect = currentExercise.acceptedAnswers.some(answer => 
-      transcript.includes(answer.toLowerCase())
-    );
-
-    if (isCorrect) {
-      setScore(score + 1);
-      setStreak(streak + 1);
-      speak(`Excellent! That's correct! ${currentExercise.explanation || ''} Let's try another one.`);
-      toast({
-        title: "Correct! 🎉",
-        description: "Great job! You got it right!",
+    try {
+      // Submit answer to backend
+      const response = await axios.post(`${API}/english/answer`, {
+        exercise_id: currentExercise.id,
+        user_answer: transcript,
+        session_id: sessionId
       });
-      setTimeout(generateExercise, 2000);
-    } else {
-      setStreak(0);
-      speak(`Not quite right. ${currentExercise.correctAnswer}. Let's try another one.`);
+
+      const { correct, feedback, next_exercise } = response.data;
+
+      if (correct) {
+        setScore(score + 1);
+        setStreak(streak + 1);
+        toast({
+          title: "Correct! 🎉",
+          description: "Great job! You got it right!",
+        });
+      } else {
+        setStreak(0);
+        toast({
+          title: "Try Again! 📚",
+          description: "Keep practicing, you're doing great!",
+          variant: "destructive",
+        });
+      }
+
+      speak(feedback);
+
+      // Set next exercise
+      if (next_exercise) {
+        setTimeout(() => {
+          setCurrentExercise(next_exercise);
+        }, 2000);
+      } else {
+        setTimeout(() => {
+          generateExercise();
+        }, 2000);
+      }
+
+    } catch (error) {
+      console.error("Error submitting answer:", error);
       toast({
-        title: "Try Again! 📚",
-        description: currentExercise.correctAnswer,
+        title: "Error",
+        description: "Could not submit answer. Please try again.",
         variant: "destructive",
       });
-      setTimeout(generateExercise, 3000);
     }
   };
 
@@ -121,6 +181,17 @@ const EnglishModule = () => {
     setExerciseType(type);
     speak(`Switching to ${type} exercises!`);
   };
+
+  if (loading && !currentExercise) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="text-lg text-gray-600">Loading your English adventure...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-4 space-y-6">
@@ -158,6 +229,7 @@ const EnglishModule = () => {
               onClick={() => changeExerciseType('spelling')}
               variant={exerciseType === 'spelling' ? 'default' : 'outline'}
               className="flex items-center gap-2"
+              disabled={loading}
             >
               ✏️ Spelling
             </Button>
@@ -165,6 +237,7 @@ const EnglishModule = () => {
               onClick={() => changeExerciseType('vocabulary')}
               variant={exerciseType === 'vocabulary' ? 'default' : 'outline'}
               className="flex items-center gap-2"
+              disabled={loading}
             >
               📝 Vocabulary
             </Button>
@@ -172,6 +245,7 @@ const EnglishModule = () => {
               onClick={() => changeExerciseType('grammar')}
               variant={exerciseType === 'grammar' ? 'default' : 'outline'}
               className="flex items-center gap-2"
+              disabled={loading}
             >
               📖 Grammar
             </Button>
@@ -221,7 +295,7 @@ const EnglishModule = () => {
         <CardContent className="flex justify-center">
           <Button
             onClick={startListening}
-            disabled={isListening}
+            disabled={isListening || loading}
             className={`w-20 h-20 rounded-full text-white transition-all ${
               isListening 
                 ? 'bg-red-500 hover:bg-red-600 animate-pulse' 
@@ -239,6 +313,7 @@ const EnglishModule = () => {
           <div className="flex justify-center">
             <Button 
               onClick={generateExercise}
+              disabled={loading}
               className="bg-green-500 hover:bg-green-600 text-white flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />
@@ -256,10 +331,11 @@ const EnglishModule = () => {
           </h3>
           <div className="space-y-2 text-gray-600 text-sm">
             <p>• Listen carefully to the question</p>
-            <p>• For spelling, say each letter clearly</p>
-            <p>• For vocabulary, explain what the word means</p>
-            <p>• For grammar, choose the correct word or form</p>
+            <p>• For spelling, say each letter clearly (like "C-A-T")</p>
+            <p>• For vocabulary, say the answer word clearly</p>
+            <p>• For grammar, choose the correct word</p>
             <p>• Click "Repeat Question" if you need to hear it again</p>
+            <p>• Switch between spelling, vocabulary, and grammar exercises</p>
           </div>
         </CardContent>
       </Card>
