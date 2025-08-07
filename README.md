@@ -24,7 +24,6 @@ EduAssist
 
  🚀 How to Run
 
-```bash
 # Install dependencies
 npm install
 
