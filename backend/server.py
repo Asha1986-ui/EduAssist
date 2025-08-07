@@ -281,8 +281,12 @@ async def submit_math_answer(request: MathAnswerRequest):
         else:
             feedback = f"Not quite right. The correct answer is {problem['answer']}. Let's try another problem."
         
-        # Get next problem
-        next_problem = await get_math_problem(type=problem.get("type"), difficulty=problem.get("difficulty"))
+        # Get next problem - call the endpoint function directly
+        try:
+            next_problem_response = await get_math_problem(type=problem.get("type"), difficulty=problem.get("difficulty"))
+            next_problem = next_problem_response.dict()
+        except:
+            next_problem = None
         
         return {
             "correct": correct,
