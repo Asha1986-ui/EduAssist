@@ -357,8 +357,12 @@ async def submit_english_answer(request: EnglishAnswerRequest):
         else:
             feedback = f"{exercise['correct_answer']} Let's try another one."
         
-        # Get next exercise
-        next_exercise = await get_english_exercise(type=exercise["type"])
+        # Get next exercise - call the endpoint function directly
+        try:
+            next_exercise_response = await get_english_exercise(type=exercise["type"])
+            next_exercise = next_exercise_response.dict()
+        except:
+            next_exercise = None
         
         return {
             "correct": correct,
