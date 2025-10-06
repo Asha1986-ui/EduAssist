@@ -33,12 +33,12 @@ def test_answer_endpoints():
         response = requests.post(f"{BASE_URL}/math/answer", json=payload)
         print(f"   Status code: {response.status_code}")
         if response.status_code == 200:
-            print("   ✅ Math answer submission works!")
+            print("   PASS: Math answer submission works!")
             print(f"   Response: {response.json()}")
         else:
-            print(f"   ❌ Math answer submission failed: {response.text}")
+            print(f"   FAIL: Math answer submission failed: {response.text}")
     else:
-        print(f"   ❌ Failed to get math problem: {response.status_code}")
+        print(f"   FAIL: Failed to get math problem: {response.status_code}")
     
     # Get an English exercise
     print("\n3. Getting English exercise...")
@@ -60,12 +60,12 @@ def test_answer_endpoints():
         response = requests.post(f"{BASE_URL}/english/answer", json=payload)
         print(f"   Status code: {response.status_code}")
         if response.status_code == 200:
-            print("   ✅ English answer submission works!")
+            print("   PASS: English answer submission works!")
             print(f"   Response: {response.json()}")
         else:
-            print(f"   ❌ English answer submission failed: {response.text}")
+            print(f"   FAIL: English answer submission failed: {response.text}")
     else:
-        print(f"   ❌ Failed to get English exercise: {response.status_code}")
+        print(f"   FAIL: Failed to get English exercise: {response.status_code}")
 
 if __name__ == "__main__":
     test_answer_endpoints()

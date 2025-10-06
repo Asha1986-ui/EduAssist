@@ -14,10 +14,106 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB connection - using in-memory storage for demo
+# For production, replace with actual MongoDB connection
+import json
+import threading
+from collections import defaultdict
+
+# In-memory storage for demo purposes
+memory_storage = {
+    'math_problems': [],
+    'english_exercises': [],
+    'session_progress': {}
+}
+storage_lock = threading.Lock()
+
+# Mock database class to simulate MongoDB operations
+class MockDB:
+    def __init__(self, name):
+        self.name = name
+    
+    def __getattr__(self, collection_name):
+        return MockCollection(collection_name)
+
+class MockCollection:
+    def __init__(self, name):
+        self.name = name
+    
+    async def aggregate(self, pipeline):
+        with storage_lock:
+            if self.name == 'math_problems':
+                data = memory_storage['math_problems']
+            elif self.name == 'english_exercises':
+                data = memory_storage['english_exercises']
+            else:
+                data = []
+            
+            # Simple aggregation simulation
+            if pipeline and len(pipeline) > 0 and pipeline[0].get('$match'):
+                match_filter = pipeline[0]['$match']
+                filtered_data = []
+                for item in data:
+                    match = True
+                    for key, value in match_filter.items():
+                        if item.get(key) != value:
+                            match = False
+                            break
+                    if match:
+                        filtered_data.append(item)
+                data = filtered_data
+            
+            # Sample operation
+            if pipeline and len(pipeline) > 1 and pipeline[1].get('$sample'):
+                import random
+                size = pipeline[1]['$sample']['size']
+                if len(data) > 0:
+                    return [random.choice(data)]
+                return []
+            
+            return data
+    
+    async def find_one(self, query):
+        with storage_lock:
+            if self.name == 'math_problems':
+                data = memory_storage['math_problems']
+            elif self.name == 'english_exercises':
+                data = memory_storage['english_exercises']
+            elif self.name == 'session_progress':
+                session_id = query.get('session_id')
+                return memory_storage['session_progress'].get(session_id)
+            else:
+                return None
+            
+            for item in data:
+                if item.get('_id') == query.get('_id'):
+                    return item
+            return None
+    
+    async def insert_many(self, documents):
+        with storage_lock:
+            if self.name == 'math_problems':
+                memory_storage['math_problems'].extend(documents)
+            elif self.name == 'english_exercises':
+                memory_storage['english_exercises'].extend(documents)
+    
+    async def replace_one(self, query, document, upsert=False):
+        with storage_lock:
+            if self.name == 'session_progress':
+                session_id = query.get('session_id')
+                if session_id:
+                    memory_storage['session_progress'][session_id] = document
+    
+    async def count_documents(self, query):
+        with storage_lock:
+            if self.name == 'math_problems':
+                return len(memory_storage['math_problems'])
+            elif self.name == 'english_exercises':
+                return len(memory_storage['english_exercises'])
+            return 0
+
+# Use mock database
+db = MockDB('eduassist')
 
 # Create the main app
 app = FastAPI(title="EduAssist API", description="Voice-powered learning for primary school students")
@@ -243,16 +339,16 @@ async def get_math_problem(
         
         # Get random problem from database
         pipeline = [{"$match": query}, {"$sample": {"size": 1}}]
-        problems = await db.math_problems.aggregate(pipeline).to_list(1)
+        problems = await db.math_problems.aggregate(pipeline)
         
         if not problems:
             # If no problems in DB, generate some
             await initialize_data()
-            problems = await db.math_problems.aggregate(pipeline).to_list(1)
+            problems = await db.math_problems.aggregate(pipeline)
         
         if problems:
             problem = problems[0]
-            problem["id"] = str(problem["_id"])
+            problem["id"] = str(problem.get("_id", problem.get("id", "unknown")))
             return MathProblem(**problem)
         
         raise HTTPException(status_code=404, detail="No problems found")
@@ -314,16 +410,16 @@ async def get_english_exercise(
         
         # Get random exercise from database
         pipeline = [{"$match": query}, {"$sample": {"size": 1}}]
-        exercises = await db.english_exercises.aggregate(pipeline).to_list(1)
+        exercises = await db.english_exercises.aggregate(pipeline)
         
         if not exercises:
             # If no exercises in DB, generate some
             await initialize_data()
-            exercises = await db.english_exercises.aggregate(pipeline).to_list(1)
+            exercises = await db.english_exercises.aggregate(pipeline)
         
         if exercises:
             exercise = exercises[0]
-            exercise["id"] = str(exercise["_id"])
+            exercise["id"] = str(exercise.get("_id", exercise.get("id", "unknown")))
             return EnglishExercise(**exercise)
         
         raise HTTPException(status_code=404, detail="No exercises found")
@@ -489,5 +585,8 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean shutdown"""
-    client.close()
     logger.info("EduAssist API shutdown complete.")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

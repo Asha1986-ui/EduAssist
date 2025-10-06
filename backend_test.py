@@ -365,7 +365,7 @@ class EduAssistTester:
     def run_all_tests(self):
         """Run all test suites"""
         print("=" * 60)
-        print("🎓 EduAssist Backend API Test Suite")
+        print("EduAssist Backend API Test Suite")
         print("=" * 60)
         print(f"Testing against: {self.base_url}")
         print(f"Session ID: {self.session_id}")
@@ -386,7 +386,7 @@ class EduAssistTester:
         total = 0
         
         for test_name, test_func in tests:
-            print(f"\n🧪 Running {test_name} Tests...")
+            print(f"\nRunning {test_name} Tests...")
             result = test_func()
             if result:
                 passed += 1
@@ -395,27 +395,27 @@ class EduAssistTester:
         
         # Summary
         print("\n" + "=" * 60)
-        print("📊 TEST SUMMARY")
+        print("TEST SUMMARY")
         print("=" * 60)
         
         success_rate = (passed / total) * 100 if total > 0 else 0
         print(f"Test Suites Passed: {passed}/{total} ({success_rate:.1f}%)")
         
         # Detailed results
-        print("\n📋 Detailed Results:")
+        print("\nDetailed Results:")
         for result in self.test_results:
-            status = "✅" if result["success"] else "❌"
+            status = "PASS" if result["success"] else "FAIL"
             print(f"{status} {result['test']}")
             if result["details"] and not result["success"]:
-                print(f"   ⚠️  {result['details']}")
+                print(f"   WARNING: {result['details']}")
         
         print("\n" + "=" * 60)
         
         if passed == total:
-            print("🎉 ALL TESTS PASSED! EduAssist backend is working perfectly!")
+            print("ALL TESTS PASSED! EduAssist backend is working perfectly!")
             return True
         else:
-            print(f"⚠️  {total - passed} test suite(s) failed. Please check the issues above.")
+            print(f"WARNING: {total - passed} test suite(s) failed. Please check the issues above.")
             return False
 
 def main():
