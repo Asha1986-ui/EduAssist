@@ -7,7 +7,7 @@ import { Mic, MicOff, Volume2, Home, RefreshCw, BookOpen } from "lucide-react";
 import { useToast } from "../hooks/use-toast";
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 const API = `${BACKEND_URL}/api`;
 
 const EnglishModule = () => {

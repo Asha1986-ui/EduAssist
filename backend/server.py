@@ -97,6 +97,16 @@ class MockCollection:
             elif self.name == 'english_exercises':
                 memory_storage['english_exercises'].extend(documents)
     
+    async def insert_one(self, document):
+        """Minimal insert_one to support creating session_progress documents."""
+        with storage_lock:
+            if self.name == 'session_progress':
+                session_id = document.get('session_id')
+                if not session_id:
+                    return None
+                memory_storage['session_progress'][session_id] = document
+                return {"inserted_id": session_id}
+    
     async def replace_one(self, query, document, upsert=False):
         with storage_lock:
             if self.name == 'session_progress':
@@ -480,7 +490,7 @@ async def get_progress(session_id: str):
         if not progress:
             # Create new session
             new_progress = SessionProgress(session_id=session_id)
-            await db.session_progress.insert_one(new_progress.dict())
+            await db.session_progress.insert_one(new_progress.model_dump())
             return new_progress
         
         progress["id"] = str(progress["_id"])
@@ -497,7 +507,7 @@ async def update_session_progress(session_id: str, subject: str, correct: bool):
         progress = await db.session_progress.find_one({"session_id": session_id})
         
         if not progress:
-            progress = SessionProgress(session_id=session_id).dict()
+            progress = SessionProgress(session_id=session_id).model_dump()
             progress.pop("id")  # Remove id for insertion
         
         # Update scores and streaks
